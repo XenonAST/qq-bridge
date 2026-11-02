@@ -6065,7 +6065,9 @@ async function main() {
             return;
           }
           const waitCfg = cfg.socialV2?.wait ?? {};
-          const minNew = Math.max(1, Math.round(Number(body.minNewMessages) || 1));
+          // 上限 5：模型有时会传 minNewMessages=12 想「攒够一堆再看」，结果一等等满 5 分钟，
+          // 期间有人 @/喊名字也听不见（回合被这个长轮询占着，唤醒只能排队）。
+          const minNew = Math.min(5, Math.max(1, Math.round(Number(body.minNewMessages) || 1)));
           const defaultMs = Number(waitCfg.defaultMs) || 30000;
           const minMs = Math.max(100, Number(waitCfg.minMs) || 5000);
           const maxMs = Math.max(minMs, Number(waitCfg.maxMs) || 600000);
@@ -6134,7 +6136,12 @@ async function main() {
             arrived = (st.lastUnreadSeq || 0) > baseline;
           } else while (Date.now() - start < timeoutMs && !aborted) {
             let nowSeq = st.lastUnreadSeq || 0;
-            if (nowSeq - baseline >= minNew) {
+            // 有人 @ 她、喊名字、或者直接提问时，不再等 minNewMessages 攒满——
+            // 这属于「直接叫她」，多等一秒都是失礼，也避免被长轮询挡住。
+            const directedNow = nowSeq > baseline && (Array.isArray(st.unread) ? st.unread : [])
+              .some((m) => m && Number(m.seq) > baseline && isDirectedAtAi(String(m.plain || m.text || '')));
+            if (nowSeq - baseline >= minNew || directedNow) {
+              if (directedNow && nowSeq - baseline < minNew) log(`[wait] ${key} 收到 @/名字/提问，提前结束等待（${nowSeq - baseline}/${minNew}）`);
               arrived = true;
               lastNewAt = Date.now();
               // 已等到新消息：继续等到“最后一条新消息之后 quietMs 内不再有新消息”再返回。
