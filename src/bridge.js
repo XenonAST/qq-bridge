@@ -8124,6 +8124,34 @@ async function main() {
     return { text: fallbackText };
   }
 
+  // GIF 在模型侧经常直接 400（Failed to load image）；把首帧转成 PNG 再送过去。
+  // ffmpeg 用环境变量 FFMPEG_PATH 或常见安装路径，找不到就原样返回（退回旧行为）。
+  function gifToPng(buffer) {
+    try {
+      if (!(buffer && buffer.length > 6)) return null;
+      const isGif = buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46; // GIF
+      if (!isGif) return null;
+      const exe = process.env.FFMPEG_PATH
+        || ['C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe', 'ffmpeg'].find((p) => p === 'ffmpeg' || fs.existsSync(p));
+      if (!exe) return null;
+      const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const inFile = path.join(os.tmpdir(), `qb-gif-${stamp}.gif`);
+      const outFile = path.join(os.tmpdir(), `qb-gif-${stamp}.png`);
+      fs.writeFileSync(inFile, buffer);
+      try {
+        execFileSync(exe, ['-y', '-loglevel', 'error', '-i', inFile, '-frames:v', '1', outFile], { stdio: 'ignore', timeout: 15000 });
+        const png = fs.readFileSync(outFile);
+        return png.length > 100 ? png : null;
+      } finally {
+        fs.rmSync(inFile, { force: true });
+        fs.rmSync(outFile, { force: true });
+      }
+    } catch (error) {
+      log(`[media] GIF 转 PNG 失败：${String(error?.message ?? error).slice(0, 120)}`);
+      return null;
+    }
+  }
+
   async function resolveMediaList(mediaList) {
     const parts = [];
     let index = 0;
@@ -8158,9 +8186,16 @@ async function main() {
             parts.push({ type: 'text', text: `${label}（图片总大小超限，已跳过）` });
             continue;
           }
-          totalBytes += img.buffer.length;
+          // GIF 首帧转 PNG：模型侧对 GIF 支持不稳，实测会 400。
+          let buf = img.buffer;
+          let mime = img.mimeType || 'image/jpeg';
+          if (/gif/i.test(mime) || (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46)) {
+            const png = gifToPng(buf);
+            if (png) { buf = png; mime = 'image/png'; }
+          }
+          totalBytes += buf.length;
           parts.push({ type: 'text', text: label });
-          parts.push({ type: 'image', mediaType: img.mimeType || 'image/jpeg', data: img.buffer.toString('base64'), name: `qq-${sticker ? 'sticker' : 'image'}-${index}.${(img.mimeType || 'image/jpeg').split('/')[1]}` });
+          parts.push({ type: 'image', mediaType: mime, data: buf.toString('base64'), name: `qq-${sticker ? 'sticker' : 'image'}-${index}.${mime.split('/')[1]}` });
         } else {
           parts.push({ type: 'text', text: `${label}（获取失败）` });
         }
@@ -8217,11 +8252,18 @@ async function main() {
             out.push({ ...base, text: `（${noun}总大小超限，已跳过）` });
             continue;
           }
-          totalBytes += img.buffer.length;
+          // 与 resolveMediaList 一样：GIF 首帧转 PNG，避免模型侧 400。
+          let buf = img.buffer;
+          let mime = img.mimeType || 'image/jpeg';
+          if (/gif/i.test(mime) || (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46)) {
+            const png = gifToPng(buf);
+            if (png) { buf = png; mime = 'image/png'; }
+          }
+          totalBytes += buf.length;
           out.push({
             ...base,
-            mimeType: img.mimeType || 'image/jpeg',
-            data: img.buffer.toString('base64'),
+            mimeType: mime,
+            data: buf.toString('base64'),
             text: ''
           });
         } else {
