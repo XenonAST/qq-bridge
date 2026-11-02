@@ -10517,8 +10517,10 @@ async function main() {
       if (isOwnerSender || Math.random() < imgP) return 'image';
     }
     // 引用一张图 + 问「这图里是什么」：这是明确在问图，不该等概率。
+    // 注意用 textContent（含 `[引用 某人：[图片]]`），plainContent 会把引用部分剥掉。
+    const quoteStr = String(textContent ?? '');
     const plainStr = String(plainContent ?? '');
-    if (/\[引用[^\]]*\[(图片|表情)\]/.test(plainStr) && /[?？]|什么|啥|这是|怎么/.test(plainStr)) return 'imageQuestion';
+    if (/\[引用[^\]]*\[(图片|表情)\]/.test(quoteStr) && /[?？]|什么|啥|这是|怎么/.test(plainStr)) return 'imageQuestion';
     // 兜底：SnowLuma 有时解析不出 @（尤其是「回复+@机器人」这种组合，事件里只剩
     // "@<被回复人>"，群聊名单里根本看不到 bot 的 at 段）。如果这话像在提问、而且她
     // 十分钟内刚在这个群说过话，就当成在问她——否则被 @ 了却完全收不到，体验太差。
