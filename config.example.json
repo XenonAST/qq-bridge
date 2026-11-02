@@ -196,7 +196,8 @@
         "小鲸鱼",
         "大肥鱼"
       ],
-      "imageProbability": 0.35
+      "imageProbability": 0.35,
+      "questionAfterReplyMs": 600000
     },
     "send": {
       "burstEnabled": true,

@@ -10477,6 +10477,13 @@ async function main() {
     // 引用一张图 + 问「这图里是什么」：这是明确在问图，不该等概率。
     const plainStr = String(plainContent ?? '');
     if (/\[引用[^\]]*\[(图片|表情)\]/.test(plainStr) && /[?？]|什么|啥|这是|怎么/.test(plainStr)) return 'imageQuestion';
+    // 兜底：SnowLuma 有时解析不出 @（尤其是「回复+@机器人」这种组合，事件里只剩
+    // "@<被回复人>"，群聊名单里根本看不到 bot 的 at 段）。如果这话像在提问、而且她
+    // 十分钟内刚在这个群说过话，就当成在问她——否则被 @ 了却完全收不到，体验太差。
+    const looksQuestion = /[?？]|什么|啥|怎么|为什么|哪|多少|是不是|能不能|有没有/.test(plainStr);
+    const recentReplyMs = Number(cfg.socialV2?.wake?.questionAfterReplyMs ?? 600000);
+    const recentlySpoke = Number(st.lastAiReplyAt) > 0 && Date.now() - Number(st.lastAiReplyAt) < Math.max(0, recentReplyMs);
+    if (looksQuestion && recentlySpoke) return 'question:recent';
     if (Number(tr.probability) > 0 && Math.random() < Number(tr.probability)) return 'probability';
     return null;
   }
