@@ -54,3 +54,11 @@ node scripts/setup-dsh.mjs desktop
 
 `start.bat` 现在会在启动时跑 `scripts/check-dsh-mcp.mjs` 自检，缺条目就自动重新注册。
 `bridge.js` 也会在检测到 unknown tool 时私聊提醒 ownerQQ（10 分钟一次）。
+## SnowLuma 版本（2026-11-03 升级）
+
+- 当前：`D:\Program Files\SnowLuma-v2.3.4-win-x64`（计划任务 `SnowLuma` 指向这里的 `start-hook.bat`）
+- 旧版 2.0.3 保留在 `D:\Program Files\SnowLuma-v2.0.3-win-x64`，可随时回滚
+- 升级时备份：`D:\dev\snowluma-upgrade\backup-2.0.3-<时间戳>\`（config + data）
+- 升级原因：2.0.3 解析不了「回复消息 + @机器人」这种组合，事件里只剩被回复人的 @，
+  机器人自己的 at 段丢失，表现为「明明 @ 了却没反应」。2.3.4 修复了解析。
+- 回滚：把计划任务的 WorkingDirectory 改回旧目录即可（config/data 都在）。
