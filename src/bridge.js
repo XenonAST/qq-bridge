@@ -7773,6 +7773,8 @@ async function main() {
   const jsonRetryState = new Map();
   // 「DSH 里没有 snowluma 工具」的通知节流（同一会话 10 分钟内只提醒一次）。
   const unknownToolNoticeAt = new Map();
+  // 「管理命令仅管理员可用」的节流：同一会话 10 分钟内只回一次，避免刷屏。
+  const adminDenyNoticedAt = new Map();
   function sendsSuppressed(kind, id) {
     const until = suppressSendsUntil.get(`${kind}:${id}`) || 0;
     return until > Date.now();
@@ -11379,7 +11381,25 @@ async function main() {
     // 管理命令：仅管理员（ownerQQ）可用，且由桥接直接执行（硬性，不经过模型）
     if (plainContent.startsWith('/')) {
       if (!isOwner) {
-        await sendToQQ(key, '管理命令仅管理员可用。');
+        // 群友发的斜杠命令绝大多数不是冲我们来的：/compact、/bot-ping、/help 之类
+        // 要么是 DSH/别的机器人的命令，要么就是玩梗。以前一律回「管理命令仅管理员可用」，
+        // 结果群里每发一条就被刷一句。现在只有真的碰到桥接自己的管理命令才提示，
+        // 其余静默忽略；并且同一会话 10 分钟内最多提示一次。
+        const cmd = plainContent.trim().split(/\s+/)[0].toLowerCase();
+        const isBridgeAdmin = cmd === '/role'
+          || ['/reset', '/new', '/status', '/silent', '/quiet', '/active', '/speak'].includes(cmd);
+        if (isBridgeAdmin) {
+          const lastAt = adminDenyNoticedAt.get(key) || 0;
+          if (Date.now() - lastAt > 10 * 60 * 1000) {
+            adminDenyNoticedAt.set(key, Date.now());
+            await sendToQQ(key, '管理命令仅管理员可用。');
+          } else {
+            log(`群友斜杠命令 ${cmd}（${key}）10 分钟内已提示过，跳过回复`);
+          }
+        } else {
+          log(`忽略群友斜杠命令 ${key}：${plainContent.slice(0, 40)}`);
+          appendActivity(`${key} 忽略群友斜杠命令：${plainContent.slice(0, 40)}`);
+        }
         return;
       }
       if (plainContent === '/reset' || plainContent === '/new') {
