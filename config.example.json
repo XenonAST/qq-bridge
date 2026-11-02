@@ -195,7 +195,8 @@
         "哦鲸鲸",
         "小鲸鱼",
         "大肥鱼"
-      ]
+      ],
+      "imageProbability": 0.35
     },
     "send": {
       "burstEnabled": true,

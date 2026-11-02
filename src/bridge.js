@@ -10465,10 +10465,21 @@ async function main() {
         return `speaker:${senderLabel}`;
       }
     }
+    // 图片/表情消息：以前完全靠 2% 概率抽中，等于发张图她基本看不到。
+    // 现在单独给一个概率；owner 发的图直接唤醒（多半是给她看的）。
+    const msgSegs = Array.isArray(event?.message) ? event.message : [];
+    const hasImage = msgSegs.some((seg) => seg && ['image', 'mface'].includes(seg.type));
+    if (hasImage) {
+      const isOwnerSender = String(event?.user_id ?? '') === String(cfg.ownerQQ ?? '');
+      const imgP = Math.min(1, Math.max(0, Number(cfg.socialV2?.wake?.imageProbability ?? 0.35)));
+      if (isOwnerSender || Math.random() < imgP) return 'image';
+    }
+    // 引用一张图 + 问「这图里是什么」：这是明确在问图，不该等概率。
+    const plainStr = String(plainContent ?? '');
+    if (/\[引用[^\]]*\[(图片|表情)\]/.test(plainStr) && /[?？]|什么|啥|这是|怎么/.test(plainStr)) return 'imageQuestion';
     if (Number(tr.probability) > 0 && Math.random() < Number(tr.probability)) return 'probability';
     return null;
   }
-
   // Only messages actually offered to the model authorize cursor-based acknowledgement.
   // Keep this receipt in memory: after a restart the model must fetch unread again.
   function readThroughSeqV2(st, additional = []) {
