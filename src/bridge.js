@@ -7773,8 +7773,6 @@ async function main() {
   const jsonRetryState = new Map();
   // 「DSH 里没有 snowluma 工具」的通知节流（同一会话 10 分钟内只提醒一次）。
   const unknownToolNoticeAt = new Map();
-  // 「管理命令仅管理员可用」的节流：同一会话 10 分钟内只回一次，避免刷屏。
-  const adminDenyNoticedAt = new Map();
   function sendsSuppressed(kind, id) {
     const until = suppressSendsUntil.get(`${kind}:${id}`) || 0;
     return until > Date.now();
@@ -11372,36 +11370,13 @@ async function main() {
       return;
     }
 
-    // 控制类话语：仅管理员（ownerQQ）可下达；群友触发直接拦截
-    if (!isOwner && /进入角色扮演|退出角色扮演|切换角色|设置角色|改角色|换角色|关闭角色扮演|开启角色扮演/.test(plainContent)) {
-      await sendToQQ(key, '角色切换仅管理员可在管理端操作，群内不支持。');
-      return;
-    }
+    // 控制类话语（进入角色扮演/切换角色等）只在管理员嘴里算指令；群友说这些就是普通聊天，
+    // 交给模型按人设自然回应（预设里已经写了“角色只能管理员改”）。
 
-    // 管理命令：仅管理员（ownerQQ）可用，且由桥接直接执行（硬性，不经过模型）
-    if (plainContent.startsWith('/')) {
-      if (!isOwner) {
-        // 群友发的斜杠命令绝大多数不是冲我们来的：/compact、/bot-ping、/help 之类
-        // 要么是 DSH/别的机器人的命令，要么就是玩梗。以前一律回「管理命令仅管理员可用」，
-        // 结果群里每发一条就被刷一句。现在只有真的碰到桥接自己的管理命令才提示，
-        // 其余静默忽略；并且同一会话 10 分钟内最多提示一次。
-        const cmd = plainContent.trim().split(/\s+/)[0].toLowerCase();
-        const isBridgeAdmin = cmd === '/role'
-          || ['/reset', '/new', '/status', '/silent', '/quiet', '/active', '/speak'].includes(cmd);
-        if (isBridgeAdmin) {
-          const lastAt = adminDenyNoticedAt.get(key) || 0;
-          if (Date.now() - lastAt > 10 * 60 * 1000) {
-            adminDenyNoticedAt.set(key, Date.now());
-            await sendToQQ(key, '管理命令仅管理员可用。');
-          } else {
-            log(`群友斜杠命令 ${cmd}（${key}）10 分钟内已提示过，跳过回复`);
-          }
-        } else {
-          log(`忽略群友斜杠命令 ${key}：${plainContent.slice(0, 40)}`);
-          appendActivity(`${key} 忽略群友斜杠命令：${plainContent.slice(0, 40)}`);
-        }
-        return;
-      }
+    // 管理命令：仅管理员（ownerQQ）可用，且由桥接直接执行（硬性，不经过模型）。
+    // 非管理员的任何以 / 开头的消息都按普通聊天处理——不拦截、不回复“仅管理员可用”，
+    // 也不让 DSH 把它当斜杠命令执行（见下面 promptText 的零宽前缀）。
+    if (isOwner && plainContent.startsWith('/')) {
       if (plainContent === '/reset' || plainContent === '/new') {
         const old = state.sessions[key];
         if (old) {
@@ -11524,11 +11499,14 @@ async function main() {
 
     // 群聊里带发送者信息，私聊不用；角色提示注入到消息开头（agent 可见）；
     // 管理员消息带身份标记（供 agent 识别，但其权限仍受工具面硬限制）
+    // 非管理员的 / 开头内容要按普通聊天送进模型，但 DSH 会把裸的 `/xxx` 当斜杠命令执行，
+    // 所以加一个零宽空格前缀：模型看到的还是原文，DSH 不再把它当命令。
+    const chatRaw = !isOwner && /^\s*\//.test(textContent) ? `\u200b${textContent}` : textContent;
     const promptText = (roleHint ? roleHint + '\n\n' : '')
       + (isOwner ? '【管理员】' : '')
       + (kind === 'group'
-        ? `${event.sender?.card || event.sender?.nickname || String(event.user_id)}：${textContent}`
-        : textContent)
+        ? `${event.sender?.card || event.sender?.nickname || String(event.user_id)}：${chatRaw}`
+        : chatRaw)
       + mediaHintFor(key, messageRef, mediaList);
 
     appendActivity(`${key} ${isOwner ? '管理员' : '群友'} ${event.sender?.nickname || event.user_id}：${textContent.slice(0, 80)}`);
