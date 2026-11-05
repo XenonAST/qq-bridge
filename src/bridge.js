@@ -6111,6 +6111,7 @@ async function main() {
           let arrived = false;
           let lastNewAt = 0;
           let aborted = false;
+          let directedHit = false;
           req.on('close', () => { aborted = true; });
           if (replyWait) {
             const incomingAt = () => {
@@ -6141,12 +6142,16 @@ async function main() {
             const directedNow = nowSeq > baseline && (Array.isArray(st.unread) ? st.unread : [])
               .some((m) => m && Number(m.seq) > baseline && isDirectedAtAi(String(m.plain || m.text || '')));
             if (nowSeq - baseline >= minNew || directedNow) {
+              if (directedNow) directedHit = true;
               if (directedNow && nowSeq - baseline < minNew) log(`[wait] ${key} 收到 @/名字/提问，提前结束等待（${nowSeq - baseline}/${minNew}）`);
               arrived = true;
               lastNewAt = Date.now();
               // 已等到新消息：继续等到“最后一条新消息之后 quietMs 内不再有新消息”再返回。
               // 这里不再受原始 timeoutMs 限制，确保对方可能连续发消息时不会抢话。
-              while (Date.now() - lastNewAt < quietMs && Date.now() - start < timeoutMs + maxQuietMs + 5000 && !aborted) {
+              // 但如果这一轮是“被直接叫到”，不要再等满 quietMs：群里消息不断时，
+              // lastNewAt 会被反复刷新，导致她卡在等待里好几分钟（实测 21:00-21:05）。
+              const quietTarget = directedHit ? Math.min(quietMs, 3000) : quietMs;
+              while (Date.now() - lastNewAt < quietTarget && Date.now() - start < timeoutMs + maxQuietMs + 5000 && !aborted) {
                 if ((st.lastUnreadSeq || 0) > nowSeq) {
                   nowSeq = st.lastUnreadSeq || 0;
                   lastNewAt = Date.now();
